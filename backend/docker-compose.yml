@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: microservices-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: appdb
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: microservices-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: microservices-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      timeout: 10s
+      retries: 5
+
+  # Security Microservice
+  security-ms:
+    build:
+      context: ./security-ms
+      dockerfile: Dockerfile
+    container_name: security-microservice
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+      MYSQL_DATABASE: appdb
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Clients Microservice
+  clients-ms:
+    build:
+      context: ./clients-ms
+      dockerfile: Dockerfile
+    container_name: clients-microservice
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+      MYSQL_DATABASE: appdb
+      REDIS_HOST: redis
+      SECURITY_MS_URL: http://security-ms:3001
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+    ports:
+      - "3002:3002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      security-ms:
+        condition: service_started
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Emails Microservice
+  emails-ms:
+    build:
+      context: ./emails-ms
+      dockerfile: Dockerfile
+    container_name: emails-microservice
+    environment:
+      PORT: 3003
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+      MYSQL_DATABASE: appdb
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+    ports:
+      - "3003:3003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  rabbitmq_data:
+
+networks:
+  microservices-network:
+    driver: bridge

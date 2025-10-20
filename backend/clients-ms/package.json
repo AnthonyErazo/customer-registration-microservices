@@ -1,0 +1,31 @@
+{
+  "name": "clients-ms",
+  "version": "1.0.0",
+  "main": "dist/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "watch": "tsc --watch",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/sensible": "^6.0.3",
+    "amqplib": "^0.10.4",
+    "axios": "^1.7.7",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.6.1",
+    "ioredis": "^5.3.2",
+    "mysql2": "^3.15.2"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.5",
+    "@types/ioredis": "^5.0.0",
+    "@types/node": "^24.8.1",
+    "typescript": "^5.9.3",
+    "ts-node": "^10.9.2"
+  }
+}

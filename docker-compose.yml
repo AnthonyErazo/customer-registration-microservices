@@ -1,0 +1,183 @@
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8
+    container_name: app-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: appdb
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/db/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    command: ["--default-authentication-plugin=mysql_native_password"]
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: app-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:management-alpine
+    container_name: app-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      timeout: 10s
+      retries: 5
+
+  # Security Microservice
+  security-ms:
+    build:
+      context: ./backend/security-ms
+      dockerfile: Dockerfile
+    container_name: security-microservice
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+      MYSQL_DATABASE: appdb
+      TOKEN_EXPIRY_HOURS: 24
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Clients Microservice
+  clients-ms:
+    build:
+      context: ./backend/clients-ms
+      dockerfile: Dockerfile
+    container_name: clients-microservice
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+      MYSQL_DATABASE: appdb
+      REDIS_HOST: redis
+      SECURITY_MS_URL: http://security-ms:3001
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+      EMAIL_QUEUE: email_queue
+    ports:
+      - "3002:3002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      security-ms:
+        condition: service_started
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Emails Microservice
+  emails-ms:
+    build:
+      context: ./backend/emails-ms
+      dockerfile: Dockerfile
+    container_name: emails-microservice
+    environment:
+      PORT: 3003
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: appsecret
+      MYSQL_DATABASE: appdb
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+      EMAIL_QUEUE: email_queue
+      PREFETCH_COUNT: 10
+    ports:
+      - "3003:3003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Frontend Angular Application
+  frontend:
+    build:
+      context: ./frontend/clientes-app
+      dockerfile: Dockerfile
+    container_name: clientes-frontend
+    environment:
+      SECURITY_MS_URL: http://localhost:3001
+      CLIENTS_MS_URL: http://localhost:3002
+    ports:
+      - "8080:8080"
+    depends_on:
+      - security-ms
+      - clients-ms
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  mysql_data:
+  rabbitmq_data:
+
+networks:
+  app-network:
+    driver: bridge
