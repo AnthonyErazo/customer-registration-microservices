@@ -2,7 +2,7 @@
 services:
   # MySQL Database
   mysql:
-    image: mysql:8
+    image: mysql:8.0
     container_name: app-mysql
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
@@ -10,7 +10,7 @@ services:
       MYSQL_USER: appuser
       MYSQL_PASSWORD: appsecret
     ports:
-      - "3306:3306"
+      - "13306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/db/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -27,7 +27,7 @@ services:
     image: redis:alpine
     container_name: app-redis
     ports:
-      - "6379:6379"
+      - "16379:6379"
     networks:
       - app-network
     healthcheck:
@@ -43,8 +43,8 @@ services:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin123
     ports:
-      - "5672:5672"
-      - "15672:15672"  # Management UI
+      - "15672:5672"
+      - "25672:15672"  # Management UI
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
@@ -173,6 +173,24 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
+
+  # phpMyAdmin for MySQL Management
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: app-phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: rootpass
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "8081:80"
+    depends_on:
+      - mysql
+    networks:
+      - app-network
+    restart: unless-stopped
 
 volumes:
   mysql_data:
